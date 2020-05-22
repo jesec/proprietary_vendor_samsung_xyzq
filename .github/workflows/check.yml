@@ -98,10 +98,13 @@ jobs:
     - name: Cleanup space
       if: steps.check.outputs.need_update == 1
       run: |
-       sudo apt-get remove --purge -y wine32 winetricks xvfb
+       sudo apt-get remove --purge -y wine wine-stable wine32 winetricks xvfb
+       sudo apt-get remove --purge -y "php*" "dotnet*" "mysql*" "nodejs*" "clang*" "google*"
        sudo apt-get autoremove -y
+       sudo apt-get clean
        sudo killall wineserver32 || true
        rm -rf ~/.wine
+       sudo rm -rf /usr/local
 
     - name: Print available disk space
       if: steps.check.outputs.need_update == 1
@@ -113,14 +116,14 @@ jobs:
       if: steps.check.outputs.need_update == 1
       run: |
        tar xvf ${{ steps.files.outputs.ap }} boot.img.lz4 vbmeta.img.lz4
-       tar xOf ${{ steps.files.outputs.ap }} super.img.lz4 | lz4 -d -c | dd of=super.img
+       tar xOf ${{ steps.files.outputs.ap }} super.img.lz4 | lz4 -d -c | sudo tee /super.img > /dev/null
        rm ${{ steps.files.outputs.ap }}
 
     - name: Convert sparse super image to raw
       if: steps.check.outputs.need_update == 1
       run: |
-       simg2img super.img super.raw.img
-       rm super.img
+       simg2img /super.img super.raw.img
+       sudo rm /super.img
 
     - name: Extract vendor and odm image from super
       if: steps.check.outputs.need_update == 1
