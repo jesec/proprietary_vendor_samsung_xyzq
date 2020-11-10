@@ -2,12 +2,12 @@ name: Check firmware update
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: "0 0 * * *"
   push:
 
 jobs:
   update:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
 
     strategy:
       fail-fast: false
@@ -27,146 +27,147 @@ jobs:
             region: "KOO"
 
     steps:
-    - name: Checkout repo
-      uses: actions/checkout@v2
-      with:
-        submodules: true
+      - name: Checkout repo
+        uses: actions/checkout@v2
+        with:
+          submodules: true
 
-    - name: Compare latest version with current version
-      id: check
-      run: |
-       need_update=0
-       latest=`curl --retry 5 --retry-delay 5 http://fota-cloud-dn.ospserver.net/firmware/${{ matrix.region }}/${{ matrix.model }}/version.xml | grep latest | sed 's/^[^>]*>//' | sed 's/<.*//'`
-       latest_short=`echo $latest | cut -d'/' -f1`
-       latest_csc=`echo $latest | cut -d'/' -f2`
-       latest_modem=`echo $latest | cut -d'/' -f3`
-       current=`cat current.${{ matrix.model }}` || need_update=1
-       [[ $latest != $current ]] && need_update=1
-       echo ::set-output name=latest_version::$latest
-       echo ::set-output name=latest_shortversion::$latest_short
-       echo ::set-output name=latest_cscversion::$latest_csc
-       echo ::set-output name=latest_modemversion::$latest_modem
-       echo ::set-output name=need_update::$need_update
+      - name: Compare latest version with current version
+        id: check
+        run: |
+          need_update=0
+          latest=`curl --retry 5 --retry-delay 5 http://fota-cloud-dn.ospserver.net/firmware/${{ matrix.region }}/${{ matrix.model }}/version.xml | grep latest | sed 's/^[^>]*>//' | sed 's/<.*//'`
+          latest_short=`echo $latest | cut -d'/' -f1`
+          latest_csc=`echo $latest | cut -d'/' -f2`
+          latest_modem=`echo $latest | cut -d'/' -f3`
+          current=`cat current.${{ matrix.model }}` || need_update=1
+          [[ $latest != $current ]] && need_update=1
+          echo ::set-output name=latest_version::$latest
+          echo ::set-output name=latest_shortversion::$latest_short
+          echo ::set-output name=latest_cscversion::$latest_csc
+          echo ::set-output name=latest_modemversion::$latest_modem
+          echo ::set-output name=need_update::$need_update
 
-    - name: Install dependencies
-      if: steps.check.outputs.need_update == 1
-      run: |
-       sudo dpkg --add-architecture i386
-       sudo apt-get update
-       sudo apt-get install -y wine32 winetricks xvfb simg2img liblz4-tool
-       Xvfb :1 -screen 0 1280x960x24 &
-       DISPLAY=:1 winetricks -q dotnet45 vcrun2008
+      - name: Use Node.js 15
+        if: steps.check.outputs.need_update == 1
+        uses: actions/setup-node@v1
+        with:
+          node-version: 15
 
-    - name: Fetch firmware
-      if: steps.check.outputs.need_update == 1
-      run: WINEDEBUG=-all wine tools/bin/SamFirm-CLI.exe ${{ matrix.model }} ${{ matrix.region }}
+      - name: Install dependencies
+        if: steps.check.outputs.need_update == 1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y simg2img liblz4-tool
+          sudo npm i -g samfirm
 
-    - name: Print directory structure
-      if: steps.check.outputs.need_update == 1
-      run: ls -la ${{ matrix.model }}_${{ matrix.region }}
+      - name: Fetch firmware
+        if: steps.check.outputs.need_update == 1
+        run: samfirm -m ${{ matrix.model }} -r ${{ matrix.region }}
 
-    - name: Get path of files
-      if: steps.check.outputs.need_update == 1
-      id: files
-      run: |
-       echo ::set-output name=bl::`find -name BL*`
-       echo ::set-output name=ap::`find -name AP*`
-       echo ::set-output name=cp::`find -name CP*`
-       echo ::set-output name=csc::`find -name HOME_CSC*`
+      - name: Print directory structure
+        if: steps.check.outputs.need_update == 1
+        run: ls -la ${{ matrix.model }}_${{ matrix.region }}
 
-    - name: Check downloaded firmware version
-      if: steps.check.outputs.need_update == 1
-      run: |
-       version_short=`echo ${{ steps.files.outputs.ap }} | cut -d'_' -f3`
-       version_csc=`echo ${{ steps.files.outputs.csc }} | cut -d'_' -f6`
-       version_modem=`echo ${{ steps.files.outputs.cp }} | cut -d'_' -f3`
-       [[ $version_short == ${{ steps.check.outputs.latest_shortversion }} ]]
-       [[ $version_csc == ${{ steps.check.outputs.latest_cscversion }} ]]
-       [[ $version_modem == ${{ steps.check.outputs.latest_modemversion }} ]]
-       echo PDA version: $version_short > versions.txt
-       echo CSC version: $version_csc >> versions.txt
-       echo Modem version: $version_modem >> versions.txt
+      - name: Get path of files
+        if: steps.check.outputs.need_update == 1
+        id: files
+        run: |
+          echo ::set-output name=bl::`find -name BL*`
+          echo ::set-output name=ap::`find -name AP*`
+          echo ::set-output name=cp::`find -name CP*`
+          echo ::set-output name=csc::`find -name HOME_CSC*`
 
-    - name: Check contents of downloaded firmware
-      if: steps.check.outputs.need_update == 1
-      run: |
-       tar tvf ${{ steps.files.outputs.bl }}
-       tar tvf ${{ steps.files.outputs.ap }}
-       tar tvf ${{ steps.files.outputs.cp }}
-       tar tvf ${{ steps.files.outputs.csc }}
+      - name: Check downloaded firmware version
+        if: steps.check.outputs.need_update == 1
+        run: |
+          version_short=`echo ${{ steps.files.outputs.ap }} | cut -d'_' -f3`
+          version_csc=`echo ${{ steps.files.outputs.csc }} | cut -d'_' -f6`
+          version_modem=`echo ${{ steps.files.outputs.cp }} | cut -d'_' -f3`
+          [[ $version_short == ${{ steps.check.outputs.latest_shortversion }} ]]
+          [[ $version_csc == ${{ steps.check.outputs.latest_cscversion }} ]]
+          [[ $version_modem == ${{ steps.check.outputs.latest_modemversion }} ]]
+          echo PDA version: $version_short > versions.txt
+          echo CSC version: $version_csc >> versions.txt
+          echo Modem version: $version_modem >> versions.txt
 
-    - name: Cleanup space
-      if: steps.check.outputs.need_update == 1
-      run: |
-       sudo apt-get remove --purge -y wine wine-stable wine32 winetricks xvfb
-       sudo apt-get remove --purge -y "php*" "dotnet*" "mysql*" "nodejs*" "clang*" "google*"
-       sudo apt-get autoremove -y
-       sudo apt-get clean
-       sudo killall wineserver32 || true
-       rm -rf ~/.wine
-       sudo rm -rf /usr/local
+      - name: Check contents of downloaded firmware
+        if: steps.check.outputs.need_update == 1
+        run: |
+          tar tvf ${{ steps.files.outputs.bl }}
+          tar tvf ${{ steps.files.outputs.ap }}
+          tar tvf ${{ steps.files.outputs.cp }}
+          tar tvf ${{ steps.files.outputs.csc }}
 
-    - name: Print available disk space
-      if: steps.check.outputs.need_update == 1
-      run: |
-       pwd
-       sudo df
+      - name: Cleanup space
+        if: steps.check.outputs.need_update == 1
+        run: |
+          sudo apt-get remove --purge -y "php*" "dotnet*" "mysql*" "nodejs*" "clang*" "google*"
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          sudo rm -rf /usr/local
 
-    - name: Extract images from AP
-      if: steps.check.outputs.need_update == 1
-      run: |
-       tar xvf ${{ steps.files.outputs.ap }} boot.img.lz4 vbmeta.img.lz4
-       tar xOf ${{ steps.files.outputs.ap }} super.img.lz4 | lz4 -d -c | sudo tee /super.img > /dev/null
-       rm ${{ steps.files.outputs.ap }}
+      - name: Print available disk space
+        if: steps.check.outputs.need_update == 1
+        run: |
+          pwd
+          sudo df
 
-    - name: Convert sparse super image to raw
-      if: steps.check.outputs.need_update == 1
-      run: |
-       simg2img /super.img super.raw.img
-       sudo rm /super.img
+      - name: Extract images from AP
+        if: steps.check.outputs.need_update == 1
+        run: |
+          tar xvf ${{ steps.files.outputs.ap }} boot.img.lz4 vbmeta.img.lz4
+          tar xOf ${{ steps.files.outputs.ap }} super.img.lz4 | lz4 -d -c | sudo tee /super.img > /dev/null
+          rm ${{ steps.files.outputs.ap }}
 
-    - name: Extract vendor and odm image from super
-      if: steps.check.outputs.need_update == 1
-      run: |
-       tools/bin/lpunpack --partition=vendor --partition=odm super.raw.img
-       ls -la vendor.img odm.img
-       rm super.raw.img
+      - name: Convert sparse super image to raw
+        if: steps.check.outputs.need_update == 1
+        run: |
+          simg2img /super.img super.raw.img
+          sudo rm /super.img
 
-    - name: Archive images for upload
-      if: steps.check.outputs.need_update == 1
-      run: |
-       tar cvf KERNEL-${{ steps.check.outputs.latest_shortversion }}.tar boot.img.lz4 vbmeta.img.lz4
-       7z a VENDOR-${{ steps.check.outputs.latest_shortversion }}.7z vendor.img odm.img
+      - name: Extract vendor and odm image from super
+        if: steps.check.outputs.need_update == 1
+        run: |
+          tools/bin/lpunpack --partition=vendor --partition=odm super.raw.img
+          ls -la vendor.img odm.img
+          rm super.raw.img
 
-    - name: Update current version
-      if: steps.check.outputs.need_update == 1
-      run: |
-       git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-       git config --local user.name "github-actions[bot]"
-       git pull origin ${{github.ref}} --ff-only
-       echo ${{ steps.check.outputs.latest_version }} > current.${{ matrix.model }}
-       git add current.${{ matrix.model }}
-       git commit -m "${{ matrix.model }}: ${{ steps.check.outputs.latest_version }}"
-       git tag ${{ steps.check.outputs.latest_shortversion }}
+      - name: Archive images for upload
+        if: steps.check.outputs.need_update == 1
+        run: |
+          tar cvf KERNEL-${{ steps.check.outputs.latest_shortversion }}.tar boot.img.lz4 vbmeta.img.lz4
+          7z a VENDOR-${{ steps.check.outputs.latest_shortversion }}.7z vendor.img odm.img
 
-    - name: Push changes to repo
-      if: steps.check.outputs.need_update == 1
-      uses: ad-m/github-push-action@master
-      with:
-       tags: true
-       github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Update current version
+        if: steps.check.outputs.need_update == 1
+        run: |
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git pull origin ${{github.ref}} --ff-only
+          echo ${{ steps.check.outputs.latest_version }} > current.${{ matrix.model }}
+          git add current.${{ matrix.model }}
+          git commit -m "${{ matrix.model }}: ${{ steps.check.outputs.latest_version }}"
+          git tag ${{ steps.check.outputs.latest_shortversion }}
 
-    - name: Upload release assets
-      if: steps.check.outputs.need_update == 1
-      uses: softprops/action-gh-release@v1
-      env:
-       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-       body_path: versions.txt
-       tag_name: ${{ steps.check.outputs.latest_shortversion }}
-       files: |
-        ${{ steps.files.outputs.bl }}
-        ${{ steps.files.outputs.cp }}
-        ${{ steps.files.outputs.csc }}
-        KERNEL-${{ steps.check.outputs.latest_shortversion }}.tar
-        VENDOR-${{ steps.check.outputs.latest_shortversion }}.7z
+      - name: Push changes to repo
+        if: steps.check.outputs.need_update == 1
+        uses: ad-m/github-push-action@master
+        with:
+          tags: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload release assets
+        if: steps.check.outputs.need_update == 1
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          body_path: versions.txt
+          tag_name: ${{ steps.check.outputs.latest_shortversion }}
+          files: |
+            ${{ steps.files.outputs.bl }}
+            ${{ steps.files.outputs.cp }}
+            ${{ steps.files.outputs.csc }}
+            KERNEL-${{ steps.check.outputs.latest_shortversion }}.tar
+            VENDOR-${{ steps.check.outputs.latest_shortversion }}.7z
